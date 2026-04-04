@@ -28,5 +28,51 @@ jobs:
       - name: Install Dependencies
         run: npm ci --ignore-scripts
 
-      - name: Run Tests
-        run: npm run test
+      - name: Run Prettier Check
+        id: prettier_check
+        run: |
+          set +e
+          npm run test:format
+          status=$?
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Build Prettier Failure Summary
+        if: steps.prettier_check.outputs.status != '0'
+        run: |
+          npx prettier . --list-different > /tmp/prettier_files.txt
+
+          {
+            echo "### Prettier check failed"
+            echo
+            echo "The following file(s) are not formatted correctly:"
+            echo
+            sed 's/^/- /' /tmp/prettier_files.txt
+            echo
+            echo "To fix locally, run:"
+            echo
+            echo '```bash'
+            echo 'npm run lint'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Build a suggested patch so web-only contributors can see exactly what changed.
+          xargs -a /tmp/prettier_files.txt npx prettier --write
+
+          {
+            echo
+            echo "Suggested patch:"
+            echo
+            echo '```diff'
+            git --no-pager diff -- . | sed -n '1,400p'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail on Prettier Issues
+        if: steps.prettier_check.outputs.status != '0'
+        run: |
+          echo "Formatting check failed. See the job summary for details."
+          exit 1
+
+      - name: Run Spelling Check
+        run: npm run test:spelling
